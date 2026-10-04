@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BoT-SORT Pipeline Runner</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <p class="kicker">TERN TRACKER</p>
+      <h1>Run the tracking pipeline.</h1>
+      <p class="lede">Drop in a source video or existing detections, tune the run, and get tracking pipeline outputs.</p>
+    </header>
+
+    <form id="pipeline-form" class="workspace">
+      <section class="panel inputs-panel">
+        <div class="panel-heading"><span class="step">01</span><div><h2>Source files</h2><p>Choose one required input source, then add optional evaluation data.</p></div></div>
+        <div class="drop-grid">
+          <label class="dropzone" id="video-zone">
+            <input id="video" name="video" type="file" accept="video/*">
+            <span class="drop-icon">01</span><strong>Video</strong><span>Optional if detections are supplied</span><em id="video-name">Drop a video here or browse</em>
+          </label>
+          <label class="dropzone" id="detections-zone">
+            <input id="detections" name="detections" type="file" accept=".csv,text/csv">
+            <span class="drop-icon">02</span><strong>Detection CSV</strong><span>Optional if a video is supplied</span><em id="detections-name">Drop detections here or browse</em>
+          </label>
+          <label class="dropzone compact" id="truth-zone">
+            <input id="truth" name="truth" type="file" accept=".xml,text/xml,application/xml">
+            <span class="drop-icon">03</span><strong>Ground truth XML</strong><span>Optional, used to calculate tracking metrics</span><em id="truth-name">Optional</em>
+          </label>
+        </div>
+        <p class="validation" id="source-validation" role="alert"></p>
+      </section>
+
+      <section class="panel settings-panel">
+        <div class="panel-heading"><span class="step">02</span><div><h2>Run settings</h2><p>Defaults mirror the current pipeline.</p></div></div>
+        <div class="settings-grid">
+          <label class="field" id="conf-field"><span>Detection confidence</span><input id="conf" name="conf" type="number" min="0" max="1" step="0.01" value="0.25"><small>Used to filter YOLOv4 detections if no detection CSV uploaded.</small></label>
+          <label class="field"><span>IoU threshold</span><input id="iou" name="iou" type="number" min="0" max="1" step="0.01" value="0.3"><small>Used for metric calculation.</small></label>
+          <label class="field"><span>Class name</span><input id="class-name" name="class_name" type="text" placeholder="e.g. STESTR_FLY"><small>Optional filter applied to metrics.</small></label>
+        </div>
+        <div class="switch-row">
+          <label class="switch-card" id="visualise-tracks-field"><input id="visualise-tracks" name="visualise_tracks" value="yes" type="checkbox" checked><span class="switch"></span><span><strong>Visualise tracks</strong><small>Save the annotated tracked video when a video is uploaded.</small></span></label>
+          <label class="switch-card" id="metrics-field"><input id="run-metrics" name="run_metrics" value="yes" type="checkbox"><span class="switch"></span><span><strong>Run tracking metrics</strong><small>Requires a ground truth XML file.</small></span></label>
+        </div>
+          <details class="panel advanced-panel">
+            <summary><span class="step">02A</span><span><strong>Advanced settings</strong><small>Additional pipeline controls and downloadable outputs</small></span><b>+</b></summary>
+            <div class="advanced-content">
+              <div class="settings-grid advanced-grid">
+                <label class="field"><span>BoT-SORT parameter set</span><input id="tracker-params" name="tracker_params" type="text" value="optuna_thresholds_updated"><small>Parameter set passed to BoT-SORT.</small></label>
+                <label class="field"><span>Tracker stride</span><input id="tracker-stride" name="tracker_stride" type="number" min="1" step="1" value="1"><small>Stride used during tracking.</small></label>
+                <label class="field"><span>NMS threshold</span><input id="nms" name="nms" type="number" min="0" max="1" step="0.01" value="0.45"><small>YOLO non-maximum suppression threshold.</small></label>
+                <label class="field"><span>Video stride</span><input id="vid-stride" name="vid_stride" type="number" min="1" step="1" value="1"><small>Process every Nth video frame.</small></label>
+                <label class="field"><span>Maximum frames</span><input id="max-frames" name="max_frames" type="number" min="0" step="1" value="0"><small>0 processes all frames.</small></label>
+                <label class="field"><span>Interpolation maximum gap</span><input id="interpolation-max-gap" name="interpolation_max_gap" type="number" min="0" step="1" value="150"><small>Maximum missing-frame gap to fill.</small></label>
+                <label class="field"><span>YOLO config path</span><input id="cfg" name="cfg" type="text" value="wednesday-yolov4/model/cfg/yolov4-tiny-wednesday-v1_2.cfg"><small>Path relative to this bundle, or an absolute local path.</small></label>
+                <label class="field"><span>YOLO weights path</span><input id="weights" name="weights" type="text" value="wednesday-yolov4/model/yolov4-tiny-wednesday-v1_2_best.weights"><small>Path relative to this bundle, or an absolute local path.</small></label>
+                <label class="field"><span>Class names path</span><input id="names" name="names" type="text" value="wednesday-yolov4/model/cfg/obj.names"><small>Path relative to this bundle, or an absolute local path.</small></label>
+              </div>
+              <div class="switch-row">
+                <label class="switch-card" id="visualise-field"><input id="visualise-detections" name="visualise_detections" value="yes" type="checkbox"><span class="switch"></span><span><strong>Visualise detections</strong><small>Output an overlay of the detection bounding boxes.</small></span></label>
+              </div>
+              <fieldset class="output-options">
+                <legend>Additional output files</legend>
+                <label><input type="checkbox" name="output_tracked" value="yes"> BoT-SORT tracked detections, before any interpolation.</label>
+                <label><input type="checkbox" name="output_filtered" value="yes"> Class-filtered tracks</label>
+                <label><input type="checkbox" name="output_stride4" value="yes"> Stride-4 subsampled output</label>
+                <small>Interpolated tracks are always included. Other files appear only when selected or required by the run.</small>
+              </fieldset>
+            </div>
+          </details>
+      </section>
+
+      <section class="runbar">
+        <div><span class="status-dot" id="status-dot"></span><span id="status">Ready to run</span></div>
+        <div class="run-actions">
+          <button id="reset-button" class="secondary-button reset-button" type="button"><span>Reset</span></button>
+          <button id="cancel-button" class="secondary-button" type="button" disabled><span>Cancel run</span></button>
+          <button id="run-button" type="submit"><span>Run pipeline</span><b>→</b></button>
+        </div>
+      </section>
+    </form>
+
+    <section class="panel output-panel" id="output-panel" hidden>
+      <div class="panel-heading"><span class="step">03</span><div><h2>Pipeline output</h2><p id="output-summary">Live process output appears here.</p></div></div>
+      <pre id="log" aria-live="polite"></pre>
+      <div id="files" class="files"></div>
+    </section>
+    <section class="session-controls">
+      <button id="shutdown-button" class="shutdown-button" type="button"><span>Shut down server</span><b>×</b></button>
+      <small>Stops the local web server and any active pipeline run.</small>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
