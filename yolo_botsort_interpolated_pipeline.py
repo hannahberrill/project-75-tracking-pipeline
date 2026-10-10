@@ -1,20 +1,13 @@
 #!/usr/bin/env python3
-r"""Run a YOLOv4 detection -> BoT-SORT tracking -> linear interpolation of tracks pipeline on one video or a batch.
+r"""Run a YOLOv4 detection -> BoT-SORT tracking -> linear interpolation of tracks pipeline on one video.
 
 Inputs:
   --video /path/to/video.mp4
       Single-video mode. Process one source clip.
   --detection-csv /path/to/detections.csv
       Single-video mode. Skip YOLO inference and track an existing detection CSV.
-  --batch
-      Batch mode. Uses the BATCH_VIDEOS and BATCH_TRUTH lists defined below.
   --out-dir /path/to/output_root
-      Output directory for all generated CSVs and optional videos.
-  --batch-out-dir /path/to/output_root
-      Output directory for batch results; required with --batch.
-  --batch-detection-csvs /path/to/detections1.csv [path/to/detections2.csv ...]
-      Optional ordered batch detection CSVs. Supplied files skip YOLO
-      detection for the corresponding batch videos.
+      Output directory for generated CSVs and optional videos.
   --gt-xml /path/to/ground_truth.xml
       Optional GT XML for single-video evaluation when --run-metrics is used.
   --visualise-detections
@@ -91,32 +84,18 @@ import numpy as np
 
 PROJECT_DIR = Path(__file__).resolve().parent
 WEDNESDAY_DIR = PROJECT_DIR / "wednesday-yolov4"
-
-BATCH_VIDEOS: list[Path] = [
-    PROJECT_DIR / "BenchmarkVids" / "20240627 (5).MP4",
-    PROJECT_DIR / "BenchmarkVids" / "20251111 (12).MP4",
-    PROJECT_DIR / "BenchmarkVids" / "DJI_0010.MP4",
-]
-
-BATCH_TRUTH: list[Path] = [
-    PROJECT_DIR / "benchmarking" / "20240627_GT_annotations.xml",
-    PROJECT_DIR / "benchmarking" / "20251111_GT_annotations.xml",
-    PROJECT_DIR / "benchmarking" / "202103222_GT_annotations.xml",
-]
-
-BATCH_INPUTS: list[tuple[Path, Path]] = list(zip(BATCH_VIDEOS, BATCH_TRUTH))
-BATCH_DETECTION_CSVS: list[Path | None] = [None] * len(BATCH_INPUTS)
+TRACKER_DIR = PROJECT_DIR / "tracker"
 
 DEFAULT_CFG = WEDNESDAY_DIR / "model" / "cfg" / "yolov4-tiny-wednesday-v1_2.cfg"
 DEFAULT_WEIGHTS = WEDNESDAY_DIR / "model" / "yolov4-tiny-wednesday-v1_2_best.weights"
 DEFAULT_NAMES = WEDNESDAY_DIR / "model" / "cfg" / "obj.names"
 
-TRACKER_SCRIPT = WEDNESDAY_DIR / "tracker_evaluation" / "botsort.py"
-INTERPOLATION_SCRIPT = PROJECT_DIR / "interpolate_tracks.py"
-VISUALISER_SCRIPT = WEDNESDAY_DIR / "scripts" / "visualise_tracked_detections.py"
-SUBSAMPLE_SCRIPT = WEDNESDAY_DIR / "tracker_evaluation" / "subsample_detections.py"
-EVAL_SCRIPT = WEDNESDAY_DIR / "tracker_evaluation" / "evaluate_mota_xml.py"
-SUMMARY_SCRIPT = PROJECT_DIR / "tracker_evaluation" / "summarize_eval_summaries.py"
+TRACKER_SCRIPT = TRACKER_DIR / "botsort.py"
+INTERPOLATION_SCRIPT = TRACKER_DIR / "interpolate_tracks.py"
+VISUALISER_SCRIPT = TRACKER_DIR / "visualise_tracked_detections.py"
+SUBSAMPLE_SCRIPT = TRACKER_DIR / "subsample_detections.py"
+EVAL_SCRIPT = PROJECT_DIR / "evaluate_mota_xml.py"
+SUMMARY_SCRIPT = TRACKER_DIR / "summarize_eval_summaries.py"
 
 
 def safe_name(path: Path) -> str:
@@ -429,7 +408,7 @@ def run_visualisation(tracked_csv: Path, source_video: Path, output_dir: Path) -
     cmd = [
         sys.executable,
         str(VISUALISER_SCRIPT),
-        "--batch-out-dir",
+        "--out-dir",
         str(output_dir),
         "--detections",
         str(tracked_csv),
@@ -521,7 +500,7 @@ def process_single_video(args: argparse.Namespace) -> None:
     output_root = args.out_dir.resolve()
     output_root.mkdir(parents=True, exist_ok=True)
 
-    source_label = safe_name(video_path) if video_path is not None else "detections_only"
+    source_label = safe_name(video_path) if video_path is not None else "outputs"
     video_dir = output_root / source_label
     video_dir.mkdir(parents=True, exist_ok=True)
 
@@ -595,92 +574,11 @@ def process_single_video(args: argparse.Namespace) -> None:
         print(f"Completed tracking pipeline for {det_csv}")
 
 
-def process_batch(args: argparse.Namespace) -> None:
-    batch_out_dir = args.batch_out_dir.resolve()
-    batch_out_dir.mkdir(parents=True, exist_ok=True)
-    batch_detection_csvs = args.batch_detection_csvs or BATCH_DETECTION_CSVS
-    if len(batch_detection_csvs) > len(BATCH_INPUTS):
-        raise ValueError(
-            f"Received {len(batch_detection_csvs)} batch detection CSVs, "
-            f"but only {len(BATCH_INPUTS)} batch inputs are configured"
-        )
-
-    for batch_index, (video_path, gt_xml) in enumerate(BATCH_INPUTS):
-        if not video_path.is_file():
-            print(f"Skipping missing video: {video_path}")
-            continue
-        video_dir = batch_out_dir
-        print(f"Processing batch item: {video_path.name}")
-
-        configured_detection_csv = batch_detection_csvs[batch_index] if batch_index < len(batch_detection_csvs) else None
-        if configured_detection_csv is not None:
-            det_csv = configured_detection_csv.resolve()
-            if not det_csv.is_file():
-                raise FileNotFoundError(f"Batch detection CSV does not exist: {det_csv}")
-            print(f"Using existing batch detection CSV: {det_csv}")
-        else:
-            stage_start = time.perf_counter()
-            det_csv = run_yolo_detection(
-                video_path=video_path,
-                output_dir=video_dir,
-                cfg=args.cfg,
-                weights=args.weights,
-                names=args.names,
-                conf=args.conf,
-                nms=args.nms,
-                vid_stride=args.vid_stride,
-                max_frames=args.max_frames,
-                visualise_detections=args.visualise_detections,
-            )
-            log_stage_time("Detection stage", stage_start)
-
-        stage_start = time.perf_counter()
-        tracked_csv = run_tracker_on_detections(
-            det_csv=det_csv,
-            tracker_params=args.tracker_params,
-            tracker_stride=args.tracker_stride,
-            output_dir=video_dir,
-        )
-        log_stage_time("Tracking stage", stage_start)
-
-        stage_start = time.perf_counter()
-        tracked_csv = run_interpolation(
-            tracked_csv=tracked_csv,
-            output_dir=video_dir,
-            max_gap=args.interpolation_max_gap,
-        )
-        log_stage_time("Interpolation stage", stage_start)
-
-        if args.visualise_tracks:
-            stage_start = time.perf_counter()
-            run_visualisation(tracked_csv=tracked_csv, source_video=video_path, output_dir=video_dir)
-            log_stage_time("Visualisation stage", stage_start)
-
-        if args.run_metrics:
-            stage_start = time.perf_counter()
-            run_metrics_for_video(
-                gt_xml=gt_xml.resolve(),
-                tracked_csv=tracked_csv,
-                output_dir=video_dir,
-                class_name=args.class_name,
-                iou=args.iou,
-            )
-            log_stage_time("Metrics stage", stage_start)
-
-    if args.run_metrics:
-        stage_start = time.perf_counter()
-        run_metrics_summary(batch_out_dir)
-        log_stage_time("Metrics summary stage", stage_start)
-
-
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run a YOLOv4 + BoT-SORT pipeline for one video or a batch.")
+    parser = argparse.ArgumentParser(description="Run a YOLOv4 + BoT-SORT pipeline for one video.")
     parser.add_argument("--video", type=Path, help="Single source video path.")
     parser.add_argument("--detection-csv", type=Path, help="Optional existing detection CSV to skip straight to tracking.")
-    parser.add_argument("--batch", action="store_true", help="Run the configured BATCH_VIDEOS and BATCH_TRUTH list.")
     parser.add_argument("--out-dir", type=Path, help="Output root directory for single-video runs.")
-    parser.add_argument("--batch-out-dir", type=Path, help="Output root directory for batch runs.")
-    parser.add_argument("--batch-detection-csvs", type=Path, nargs="+", help="Optional ordered detection CSVs for batch items; supplied files skip YOLO detection.")
     parser.add_argument("--gt-xml", type=Path, help="Ground-truth XML for single-video metrics.")
     parser.add_argument("--visualise-detections", action="store_true", help="Save annotated detection-only preview videos.")
     parser.add_argument("--visualise-tracks", dest="visualise_tracks", action="store_true", default=True, help="Save annotated tracked output videos (default: enabled).")
@@ -707,14 +605,8 @@ def main() -> None:
     run_start = time.perf_counter()
 
     try:
-        if args.batch:
-            if args.batch_out_dir is None:
-                parser.error("--batch-out-dir is required when using --batch")
-            process_batch(args)
-            return
-
         if args.video is None and args.detection_csv is None:
-            parser.error("Either provide --video, --detection-csv, or use --batch")
+            parser.error("Either --video or --detection-csv must be supplied")
         process_single_video(args)
     finally:
         print(f"Total pipeline runtime: {time.perf_counter() - run_start:.2f} s")

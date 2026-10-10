@@ -60,6 +60,7 @@ h1 { font-size:clamp(42px,7vw,78px); line-height:.96; letter-spacing:-2px; margi
 .status-dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:#8c978f; margin-right:8px; }
 .status-dot.busy { background:var(--coral); box-shadow:0 0 0 5px rgba(239,118,91,.16); }
 .status-dot.done { background:#6b9d3e; }
+.status-dot.error { background:#a23f2d; }
 button { border:0; background:var(--teal); color:white; padding:15px 18px 15px 21px; font:600 15px 'Space Grotesk',sans-serif; cursor:pointer; display:flex; gap:35px; align-items:center; }
 button b { color:var(--acid); font-size:22px; font-weight:400; }
 button:disabled { opacity:.5; cursor:wait; }

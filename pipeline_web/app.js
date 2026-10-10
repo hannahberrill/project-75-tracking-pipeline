@@ -87,8 +87,12 @@ form.addEventListener('submit', async (event) => {
     runButton.disabled = true; cancelButton.disabled = false; status.textContent = 'Pipeline running'; statusDot.className = 'status-dot busy';
     resetButton.disabled = true;
     const response = await fetch('/run', { method: 'POST', body: data });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) {
+      const details = await response.text();
+      throw new Error(`Request failed (${response.status}): ${details}`);
+    }
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
+    let receivedFinishedEvent = false;
     while (true) {
       const chunk = await reader.read();
       if (chunk.done) break;
@@ -100,19 +104,30 @@ form.addEventListener('submit', async (event) => {
         if (message.event === 'started') { activeJobId = message.job_id; }
         if (message.event === 'output') { log.textContent += message.text; log.scrollTop = log.scrollHeight; }
         if (message.event === 'finished') {
+          receivedFinishedEvent = true;
           const ok = message.status === 'complete';
           activeJobId = null; cancelButton.disabled = true;
           status.textContent = ok ? 'Pipeline complete' : (message.status === 'cancelled' ? 'Run cancelled' : 'Pipeline failed');
-          statusDot.className = `status-dot ${ok ? 'done' : 'busy'}`;
+          statusDot.className = `status-dot ${ok ? 'done' : (message.status === 'failed' ? 'error' : 'busy')}`;
+          if (typeof message.output === 'string') log.textContent = message.output;
+          if (!ok && message.status === 'failed' && !message.output) {
+            log.textContent += `Pipeline failed${message.return_code == null ? '.' : ` (exit code ${message.return_code}).`}\n`;
+          }
+          log.scrollTop = log.scrollHeight;
           for (const file of message.files || []) {
             const link = document.createElement('a'); link.href = `/download/${message.job_id}/${encodeURIComponent(file)}`; link.textContent = `Download ${file}`; link.download = ''; files.append(link);
           }
         }
       }
     }
+    if (!receivedFinishedEvent) {
+      throw new Error('The server closed the run stream before sending a completion status.');
+    }
   } catch (error) {
-    validation.textContent = error.message || 'The pipeline could not be started.';
-    status.textContent = 'Ready to run'; statusDot.className = 'status-dot';
+    log.textContent += `\nERROR: ${error.message || 'The pipeline could not be started.'}\n`;
+    log.scrollTop = log.scrollHeight;
+    activeJobId = null;
+    status.textContent = 'Run failed'; statusDot.className = 'status-dot error';
   } finally { runButton.disabled = false; resetButton.disabled = false; cancelButton.disabled = true; }
 });
 

@@ -176,31 +176,36 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
-        self.wfile.write((json.dumps({"job_id": job_id, "event": "started"}) + "\n").encode())
-        self.wfile.flush()
-        last_output = 0
-        while True:
-            with jobs_lock:
-                job = dict(jobs[job_id])
-            output = str(job["output"])
-            if len(output) > last_output:
-                event = {"event": "output", "text": output[last_output:]}
-                self.wfile.write((json.dumps(event) + "\n").encode())
-                self.wfile.flush()
-                last_output = len(output)
-            if job["status"] in {"complete", "failed", "cancelled"}:
-                finished_event = {
-                    "event": "finished",
-                    "job_id": job_id,
-                    "status": job["status"],
-                    "output": job["output"],
-                    "files": job["files"],
-                    "return_code": job["return_code"],
-                }
-                self.wfile.write((json.dumps(finished_event) + "\n").encode())
-                self.wfile.flush()
-                break
-            threading.Event().wait(0.15)
+        try:
+            self.wfile.write((json.dumps({"job_id": job_id, "event": "started"}) + "\n").encode())
+            self.wfile.flush()
+            last_output = 0
+            while True:
+                with jobs_lock:
+                    job = dict(jobs[job_id])
+                output = str(job["output"])
+                if len(output) > last_output:
+                    event = {"event": "output", "text": output[last_output:]}
+                    self.wfile.write((json.dumps(event) + "\n").encode())
+                    self.wfile.flush()
+                    last_output = len(output)
+                if job["status"] in {"complete", "failed", "cancelled"}:
+                    finished_event = {
+                        "event": "finished",
+                        "job_id": job_id,
+                        "status": job["status"],
+                        "output": job["output"],
+                        "files": job["files"],
+                        "return_code": job["return_code"],
+                    }
+                    self.wfile.write((json.dumps(finished_event) + "\n").encode())
+                    self.wfile.flush()
+                    break
+                threading.Event().wait(0.15)
+        except ConnectionError:
+            # The run is tracked independently; a disconnected page must not
+            # interrupt the pipeline or produce a server traceback.
+            return
 
     def cancel_requested_job(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))

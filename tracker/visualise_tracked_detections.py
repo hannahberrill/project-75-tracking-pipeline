@@ -15,22 +15,6 @@ import numpy as np
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 
-# Add one (tracked detections CSV, source video) pair for each video to render.
-BATCH_INPUTS: list[tuple[Path, Path]] = [
-    (
-        PROJECT_DIR / "benchmarking" / "optuna_study_8_sep" / "botsort" / "trial_018" / "20240627_5__tracked_detections.csv",
-        PROJECT_DIR / "BenchmarkVids" / "20240627 (5).MP4",
-    ),
-    (
-        PROJECT_DIR / "benchmarking" / "optuna_study_8_sep" / "botsort" / "trial_018" / "20251111_12__tracked_detections.csv",
-        PROJECT_DIR / "BenchmarkVids" / "20251111 (12).MP4",
-    ),
-    (
-        PROJECT_DIR / "benchmarking" / "optuna_study_8_sep" / "botsort" / "trial_018" / "DJI_0010_tracked_detections.csv",
-        PROJECT_DIR / "BenchmarkVids" / "DJI_0010.MP4",
-    ),
-]
-
 
 def safe_name(path: Path) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", path.stem)
@@ -189,46 +173,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Visualise tracked detections over source videos."
     )
-    parser.add_argument(
-        "--batch-out-dir",
-        type=Path,
-        required=True,
-        help="Directory in which annotated videos will be saved.",
-    )
-    parser.add_argument(
-        "--batch",
-        action="store_true",
-        help="Render the pairs listed in BATCH_INPUTS.",
-    )
-    parser.add_argument("--detections", type=Path, help="Tracked detections CSV for single-video mode.")
-    parser.add_argument("--video", type=Path, help="Source video for single-video mode.")
+    parser.add_argument("--out-dir", type=Path, required=True, help="Directory in which the annotated video will be saved.")
+    parser.add_argument("--detections", type=Path, required=True, help="Tracked detections CSV.")
+    parser.add_argument("--video", type=Path, required=True, help="Source video.")
     parser.add_argument("--trail-length", type=int, default=20)
     parser.add_argument("--max-frames", type=int, default=0, help="0 means process the complete video.")
     args = parser.parse_args()
 
-    if args.batch:
-        inputs = BATCH_INPUTS
-    elif args.detections and args.video:
-        inputs = [(args.detections, args.video)]
-    else:
-        parser.error("use --batch, or provide both --detections and --video")
-
-    failures = 0
-    for detections_csv, source_video in inputs:
-        try:
-            render_video(
-                detections_csv,
-                source_video,
-                args.batch_out_dir,
-                args.trail_length,
-                args.max_frames,
-            )
-        except Exception as error:
-            failures += 1
-            print(f"ERROR for {source_video.name}: {error}")
-
-    if failures:
-        raise SystemExit(f"{failures} visualisation job(s) failed")
+    render_video(
+        args.detections,
+        args.video,
+        args.out_dir,
+        args.trail_length,
+        args.max_frames,
+    )
 
 
 if __name__ == "__main__":
